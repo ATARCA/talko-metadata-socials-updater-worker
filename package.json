@@ -1,0 +1,24 @@
+{
+  "name": "talko-metadata-socials-updater-worker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rm -rf dist && esbuild ./index.js --entry-names=[dir]/[name]/index --bundle --platform=node --target=node16.14 --outdir=dist"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.16.17"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.245.0",
+    "aws-sdk": "^2.1294.0",
+    "dotenv": "^16.0.3",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4",
+    "node-fetch": "^2.6.8",
+    "twitter-api-v2": "^1.13.0"
+  }
+}
