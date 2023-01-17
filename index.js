@@ -4,95 +4,95 @@ const fetch = require('node-fetch')
 const _ = require('lodash')
 const moment = require('moment')
 const {TwitterApi} = require('twitter-api-v2')
+const {WebhookClient, EmbedBuilder} = require('discord.js');
+const { update } = require('lodash');
+const {updateMetadata, updateDiscord, updateTwitter, updateItems, queryItems} = require('./helpers')
+const {twitter_config, aws_remote_config} = require('./configs')
 
-const aws_remote_config = {
-    accessKeyId: process.env.AWS_ACCESS_ID,
-    secretAccessKey: process.env.AWS_SECRET_KEY,
-    region: process.env.REGION
-}
-
-const twitter_config = {
-    appKey: process.env.TWITTER_API_KEY,
-    appSecret: process.env.TWITTER_API_SECRET,
-    accessToken: process.env.TWITTER_ACCESS_TOKEN,
-    accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET
-}
-
+//refactor: find all tokens that have twitter or discord set to false or their metadata is false (it may now be available)
 var params = {
     ExpressionAttributeValues: {
         ':c': process.env.CONTRACT_ADDRESS,
         ':m': false
     },
     KeyConditionExpression: 'contractAddress = :c',
-    FilterExpression: 'metadataAvailable = :m',
+    FilterExpression: 'metadataAvailable = :m OR twitter = :m OR discord = :m',
     TableName: process.env.TABLE_NAME
 }
 
-async function queryItems(client, params) {
-    try {
-        return client.query(params).promise()
-    } catch(err) {
-        return err
-    }
-}
+//test updating the metadata availability parameter after retrieval of metadata
+//create update functions for social media updates
+//refactor
 
 AWS.config.update(aws_remote_config)
 const client = new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'})
 const twitterClient = new TwitterApi(twitter_config)
+const discordWebhookClient = new WebhookClient({url: process.env.WEBHOOK_URL})
+
+//find all tokens that have metadata set as false, or their discord or twitter is false
 
 async function main() {
     const results = await queryItems(client, params)  // fetch infromation on available tokens from dynamodb
     if(results?.Items) {
         const responses = _.map(results?.Items, async function(item) {
             const talkoTokenMetadata = 'https://api.talkoapp.io/metadata/' + process.env.CONTRACT_ADDRESS + '/' + item.tokenId
+            const talkoTokenURI = 'https://talkoapp.io/token/' + process.env.CONTRACT_ADDRESS + '/' + item.tokenId
             const metadataresponse = await fetch(talkoTokenMetadata)    // fetch metadata of a token
             
             if (metadataresponse?.ok) {
                 const data = await metadataresponse.json()
-                console.log(data)
-                item['metadataAvailable'] = true
+                const imageURI = data?.image
+                const updateMetadataParam = updateMetadata(item.tokenId, true)
+                const updateTwitterParam = updateTwitter(item.tokenId, true)
+                const updateDiscordParam = updateDiscord(item.tokenId, true) 
+                await updateItems(client, updateMetadataParam)
                 const receiverMetadataObj = _.find(data?.attributes, function(o) {return o.trait_type == 'Receiver'})   // find receiver from metadata attributes
-                const tweetMsg = 'New Streamr Award token has been minted! Congratulations ' + receiverMetadataObj?.value; 
-
-                const image = await fetch(data?.image)  // fetch image associated to metadata
+                const categoryMetadataObj = _.find(data?.attributes, function(o) {return o.trait_type == 'Category'})
+                const tweetMsg = 'New Streamr Award token has been minted! Congratulations ' + receiverMetadataObj?.value + '. Checkout it out at ' +talkoTokenURI;
+                const image = await fetch(imageURI)  // fetch image associated to metadata
                 const imageBuffer = Buffer.from(await image.arrayBuffer()) 
-
                 const mediaId = await twitterClient.v1.uploadMedia(imageBuffer, {type: 'png'})  // upload image to twitter, receive media id
-                //load the metadata image to buffer
-                //refactor to try catch, async await
-                twitterClient.v1.tweet(tweetMsg, {media_ids: mediaId}).then((val) => {   // post tweet to twitter
-                    console.log(val)
-                    console.log("success")
-                }).catch((err) => {
-                    console.log(err)
-                })
-
+                if (!item?.twitter) {
+                    try {
+                        await twitterClient.v1.tweet(tweetMsg, {media_ids: mediaId})
+                        await updateItems(client, updateTwitterParam)
+                    }
+                    catch(err) {
+                        console.log('Failed to tweet tokenId: '+item.tokenId, err)
+                    }
+                }
                 
-                //attempt to update socials
-                //load metadata image to buffer
-                //draft a tweet
-                //New Streamr Award token has been minted! Congratulations <RECEIVER> 
-                //append image to tweet
+                if (!item?.discord) {
+                    const embed = new EmbedBuilder()
+                    embed
+                    .setTitle('New award token has been minted')
+                    .setColor(0x00FFFF)
+                    .setURL(talkoTokenURI)
+                    .setDescription(data?.name)
+                    .setThumbnail(imageURI)
+                    .addFields(
+                        { name: 'Receiver', value: receiverMetadataObj?.value },
+                        { name: 'Award Category', value: categoryMetadataObj?.value },
+                        { name: 'Mint block', value: item?.mintBlock },
+                        { name: 'View token at Talko platform', value: talkoTokenURI }
+                    )
+                    //update discord only if discord was false
+                    try {
+                        await discordWebhookClient.send({
+                            content: '',
+                            username: 'Talko-Bot',
+                            avatarURL: 'https://images.talkoapp.io/discord_bot_1.png',
+                            embeds: [embed]
+                        })
+                        await updateItems(client, updateDiscordParam)
 
-                //update that metadata is available 
-                //update that metadata has been updated  to twitter
-                //update that metadata has been updated to discord
-
-
+                    } catch(err) {
+                        console.log('Failed to update discord on tokenId: ' + item.tokenId, err)
+                    }
+                }
             }
         })
     }
     console.log(results)
 }
-
-
 main()
-//query items from a specific dynamodb table that have certain contract address as the primary key and that has metadata set as false
-//query backend for availability of metadata
-//if metadata available, and update socials
-//if metadata available, update the metadata availability to dynamodb table, update if posted to socials
-
-
-
-
-
