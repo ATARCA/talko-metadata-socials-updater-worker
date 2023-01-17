@@ -35,7 +35,7 @@ exports.handler = async (event, context) => {
     async function main() {
         const results = await queryItems(client, params)  // fetch infromation on available tokens from dynamodb
         if(results?.Items) {
-            const responses = _.map(results?.Items, async function(item) {
+            return Promise.all(_.map(results?.Items, async function(item) {
                 const talkoTokenMetadata = 'https://api.talkoapp.io/metadata/' + process.env.CONTRACT_ADDRESS + '/' + item.tokenId
                 const talkoTokenURI = 'https://talkoapp.io/token/' + process.env.CONTRACT_ADDRESS + '/' + item.tokenId
                 const metadataresponse = await fetch(talkoTokenMetadata)    // fetch metadata of a token
@@ -92,7 +92,7 @@ exports.handler = async (event, context) => {
                         }
                     }
                 }
-            })
+            }))
         }
         console.log(results)
     }
